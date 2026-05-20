@@ -31,16 +31,33 @@ class LLMClient:
             log.warning("Failed to initialise Groq client: %s", exc)
 
     def classify_intent(self, user_input: str) -> str:
+        # Run the regex heuristic first — if it fires a strong "log" signal, trust it
+        # immediately rather than risking the small LLM misclassifying it as "search".
+        regex_action = self._fallback_intent(user_input)
+        if regex_action == "log":
+            return "log"
+
         prompt = (
-            "Classify this CRM assistant message as exactly one action: "
-            "log, edit, delete, search, followup, summarize. Return JSON: {\"action\":\"...\"}.\n"
+            "Classify this CRM assistant message as exactly one of these actions and return JSON: "
+            "{\"action\":\"...\"}.\n\n"
+            "Actions:\n"
+            "  log      – recording a past interaction (keywords: met, called, visited, discussed, emailed, meeting)\n"
+            "  search   – looking up existing records (keywords: show me, find, search, list, history)\n"
+            "  edit     – modifying an existing record (keywords: change, update, correct, edit)\n"
+            "  delete   – removing records (keywords: delete, remove, erase, clear)\n"
+            "  followup – scheduling a future action (keywords: schedule follow-up, when should, next step)\n"
+            "  summarize – generating a summary (keywords: summarize, recap, report)\n\n"
+            "Examples:\n"
+            "  'Met Dr. Patel today about Product X' → log\n"
+            "  'Show me all interactions for Dr. Smith' → search\n"
+            "  'Delete interaction #5' → delete\n\n"
             f"Message: {user_input}"
         )
         data = self._chat_json(prompt)
         action = str(data.get("action", "")).lower()
         if action in VALID_ACTIONS:
             return action
-        return self._fallback_intent(user_input)
+        return regex_action
 
     def extract_interaction(self, user_input: str) -> dict[str, Any]:
         prompt = (
@@ -159,12 +176,13 @@ class LLMClient:
             return "edit"
         if any(word in text for word in ("summarize", "summary", "recap", "report")):
             return "summarize"
+        # Check log BEFORE search — "met", "called", "discussed" are unambiguous log signals
+        if re.search(r"\b(log|record|met|meeting|called|emailed|visited|discussed)\b", text):
+            return "log"
         if any(word in text for word in ("show", "find", "search", "history", "interactions with")):
             return "search"
         if any(phrase in text for phrase in ("when should", "schedule follow", "next follow", "next step")):
             return "followup"
-        if re.search(r"\b(log|record|met|meeting|called|emailed|visited|discussed)\b", text):
-            return "log"
         if any(phrase in text for phrase in ("follow up", "follow-up")):
             return "followup"
         # A bare HCP name with no action keywords → treat as a search
@@ -172,14 +190,34 @@ class LLMClient:
             return "search"
         return "log"
 
+    # Words that must not be treated as part of an HCP name
+    _NAME_STOP_WORDS = frozenset({
+        "today", "yesterday", "tomorrow", "about", "for", "with", "and",
+        "the", "to", "at", "on", "in", "is", "was", "he", "she", "they",
+        "his", "her", "their", "we", "i", "a", "an", "said", "that",
+    })
+
+    def _parse_hcp_name_from_text(self, text: str) -> str | None:
+        """Extract 'Dr. Surname' or 'Dr. First Last' while ignoring stop-words."""
+        match = re.search(r"\bDr\.?\s*(\w+)(?:\s+(\w+))?", text, re.IGNORECASE)
+        if match:
+            parts = [match.group(1)]
+            second = match.group(2)
+            if second and second.lower() not in self._NAME_STOP_WORDS:
+                parts.append(second)
+            return "Dr. " + " ".join(parts).title()
+        # fallback: "met/with/for <Name>"
+        rel_match = re.search(
+            r"\b(?:with|for|met|called|emailed|visited)\s+(\w+(?:\s+\w+)?)",
+            text, re.IGNORECASE,
+        )
+        if rel_match:
+            return rel_match.group(1).title()
+        return None
+
     def _fallback_extract(self, user_input: str) -> dict[str, Any]:
         text = user_input.strip()
-        explicit_hcp = re.search(r"\bDr\.?\s*(\w+(?:\s+\w+)?)", text, re.IGNORECASE)
-        if explicit_hcp:
-            raw = re.sub(r"(?i)^Dr\.?\s*", "", explicit_hcp.group(0)).strip().title()
-            hcp_name = f"Dr. {raw}"
-        else:
-            hcp_name = None
+        hcp_name = self._parse_hcp_name_from_text(text)
         if not hcp_name:
             hcp_match = re.search(
                 r"\b(?:with|for|met|called|emailed|visited)\s+(\w+(?:\s+\w+)?)",

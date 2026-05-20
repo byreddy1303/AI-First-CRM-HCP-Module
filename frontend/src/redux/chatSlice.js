@@ -40,7 +40,11 @@ const chatSlice = createSlice({
       })
       .addCase(sendChatMessage.fulfilled, (state, action) => {
         state.isTyping = false;
-        state.pendingExtraction = action.payload.extracted_data || null;
+        // Only offer "Confirm & Save" for log intents that the agent didn't auto-save
+        state.pendingExtraction =
+          action.payload.action === "log" && !action.payload.interaction_id
+            ? (action.payload.extracted_data || null)
+            : null;
         state.messages.push({
           role: "assistant",
           content: action.payload.response,

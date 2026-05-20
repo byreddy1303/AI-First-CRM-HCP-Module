@@ -1,6 +1,7 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 
 import { apiRequest } from "./api";
+import { sendChatMessage } from "./chatSlice";
 
 export const createInteraction = createAsyncThunk("interactions/create", async (payload) => {
   return apiRequest("/api/interactions", {
@@ -91,6 +92,12 @@ const interactionsSlice = createSlice({
         state.deletedIds.push(...ids);
         state.list = [];
         state.current = null;
+      })
+      // Clear the stale "Saved interaction" banner whenever any non-log chat action completes
+      .addCase(sendChatMessage.fulfilled, (state, action) => {
+        if (action.payload.action !== "log") {
+          state.current = null;
+        }
       });
   }
 });

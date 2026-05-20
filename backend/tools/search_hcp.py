@@ -29,13 +29,21 @@ def search_hcp_tool(db: Session, state: dict[str, Any], llm: LLMClient) -> dict[
     }
 
 
+_NAME_STOP_WORDS = frozenset({
+    "today", "yesterday", "tomorrow", "about", "for", "with", "and",
+    "the", "to", "at", "on", "in", "is", "was", "he", "she", "they",
+    "his", "her", "their", "we", "i", "a", "an", "said", "that",
+})
+
+
 def _parse_hcp_name(text: str) -> str | None:
-    match = re.search(r"\bDr\.?\s*(\w+(?:\s+\w+)?)", text, re.IGNORECASE)
+    match = re.search(r"\bDr\.?\s*(\w+)(?:\s+(\w+))?", text, re.IGNORECASE)
     if match:
-        name = match.group(0).strip()
-        # normalise to "Dr. Firstname" with space and capital
-        name = re.sub(r"(?i)^Dr\.?\s*", "", name).strip().title()
-        return f"Dr. {name}"
+        parts = [match.group(1)]
+        second = match.group(2)
+        if second and second.lower() not in _NAME_STOP_WORDS:
+            parts.append(second)
+        return "Dr. " + " ".join(parts).title()
     with_match = re.search(r"(?:with|for)\s+(\w+(?:\s+\w+)?)", text, re.IGNORECASE)
     return with_match.group(1).title() if with_match else None
 

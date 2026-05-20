@@ -42,7 +42,8 @@ def intent_detection_node(state: CRMState, llm: LLMClient) -> CRMState:
     action = next_state.get("action")
     if action not in VALID_ACTIONS:
         next_state["action"] = llm.classify_intent(user_input)
-    if not next_state.get("extracted_data"):
+    # Extract entities for actions that need structured data; skip search/summarize
+    if next_state["action"] in ("log", "edit", "delete", "followup") and not next_state.get("extracted_data"):
         next_state["extracted_data"] = llm.extract_interaction(user_input)
     return next_state
 
