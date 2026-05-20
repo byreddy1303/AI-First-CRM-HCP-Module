@@ -119,4 +119,3 @@ Add HCP autocomplete search, richer form validation, auth roles, automated Playw
 > Code generated using ChatGPT 5.0 as per assignment guidelines.
 
 > LLM model: gemma2-9b-it via Groq API.
-
