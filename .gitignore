@@ -1,0 +1,17 @@
+.env
+backend/.env
+frontend/.env
+crm.db
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+node_modules/
+frontend/build/
+.DS_Store
+*.pdf
+generate_strategy_pdf.py
+.claude/
+.idea/
+*.log
+
